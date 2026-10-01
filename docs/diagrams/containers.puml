@@ -1,0 +1,58 @@
+@startuml
+!include <C4/C4_Container>
+
+title Маркетплейс — C4 Container\nПервый вариант архитектуры
+LAYOUT_TOP_DOWN()
+skinparam nodesep 55
+skinparam ranksep 80
+AddRelTag("async", $lineColor="#A04A00", $lineStyle=DashedLine(), $legendText="Асинхронное событие через RabbitMQ")
+AddRelTag("callback", $lineColor="#7250A2", $lineStyle=DashedLine(), $legendText="Асинхронный результат провайдера через HTTPS webhook")
+
+Person(buyer, "Покупатель", "Просматривает товары, оформляет и оплачивает заказы")
+Person(seller, "Продавец", "Управляет своими товарами; может быть и покупателем")
+
+System_Boundary(marketplace, "Маркетплейс") {
+    Container(web, "Веб-приложение", "JavaScript / HTML / CSS", "Интерфейс покупателя и продавца")
+    Container(users, "Пользователи", "Python / FastAPI", "Аккаунты, профили, email и роли")
+    Container(catalog, "Каталог и лента", "Python / FastAPI", "Товары и текущие цены; просмотры и персонализация")
+    Container(orders, "Заказы", "Python / FastAPI", "Состав, фиксированные цены, итог и состояние заказа")
+    Container(payments, "Платежи", "Python / FastAPI", "Платёжные операции и учёт результатов оплаты")
+    Container(notifications, "Уведомления", "Python / worker", "Email о статусах заказов; учёт и повторные отправки")
+
+    ContainerDb(users_db, "База пользователей", "PostgreSQL", "Профили, email, роли")
+    ContainerDb(catalog_db, "База каталога и ленты", "PostgreSQL", "Товары, категории, цены, история просмотров")
+    ContainerDb(orders_db, "База заказов", "PostgreSQL", "Заказы, позиции, зафиксированные суммы, статусы")
+    ContainerDb(payments_db, "База платежей", "PostgreSQL", "Попытки оплаты, суммы, результаты, ID провайдера")
+    ContainerDb(notifications_db, "База уведомлений", "PostgreSQL", "Задания отправки, получатели, результаты и попытки")
+}
+
+System_Ext(payment_provider, "Платёжный провайдер", "Внешняя платёжная страница и обработка платежей")
+System_Ext(email_provider, "Почтовый сервис", "Внешняя доставка email покупателям")
+Lay_D(payments, payment_provider)
+
+Rel(buyer, web, "Выбирает товары и оформляет покупку", "Браузер")
+Rel(seller, web, "Создаёт и редактирует товары", "Браузер")
+Rel(web, users, "Управляет аккаунтом и профилем", "HTTPS / JSON, синхронно")
+Rel(web, catalog, "Получает ленту; передаёт просмотры; изменяет товары", "HTTPS / JSON, синхронно")
+Rel(web, orders, "Создаёт заказ; получает номер и статус", "HTTPS / JSON, синхронно")
+Rel(web, payments, "Начинает оплату по ID заказа", "HTTPS / JSON, синхронно")
+Rel(web, payment_provider, "Открывает платёжную страницу", "HTTPS / переход браузера")
+
+Rel(orders, catalog, "Проверяет товары и текущие цены", "HTTP / JSON, синхронно")
+Rel(payments, orders, "Получает зафиксированную сумму и состояние заказа", "HTTP / JSON, синхронно")
+Rel(payments, payment_provider, "Создаёт платёж", "HTTPS / API")
+Rel(payment_provider, payments, "Результат оплаты", "HTTPS / webhook", $tags="callback")
+Rel(payments, orders, "Передаёт результат оплаты", "AMQP через RabbitMQ: payments.results", $tags="async")
+Rel(orders, notifications, "Передаёт изменение статуса заказа", "AMQP через RabbitMQ: orders.status", $tags="async")
+Rel(notifications, users, "Получает email покупателя по ID", "HTTP / JSON, синхронно")
+Rel(notifications, email_provider, "Передаёт письмо для доставки", "SMTP / TLS")
+
+Rel(users, users_db, "Читает и изменяет свои данные", "SQL / PostgreSQL protocol")
+Rel(catalog, catalog_db, "Читает и изменяет свои данные", "SQL / PostgreSQL protocol")
+Rel(orders, orders_db, "Читает и изменяет свои данные", "SQL / PostgreSQL protocol")
+Rel(payments, payments_db, "Читает и изменяет свои данные", "SQL / PostgreSQL protocol")
+Rel(notifications, notifications_db, "Читает и изменяет свои данные", "SQL / PostgreSQL protocol")
+
+SHOW_LEGEND()
+footer Проектируемая система. Бизнес-функциональность не реализована. Технологии и детали интеграций предварительные.
+@enduml
